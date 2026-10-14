@@ -1,0 +1,821 @@
+<title>smartIBAN Till Prototype</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+/* Layout: control bar on top, three live panels (till terminal, shopper phone, smartIBAN console + live sequence chart), then dashboard, cost model and design decisions. */
+:root{
+  --bg:#eef1f5; --surface:#ffffff; --surface-2:#f6f8fb; --ink:#111a2e; --muted:#5a6479; --line:#d6dce6;
+  --accent:#1f4fd1; --accent-soft:#e3eafc; --money:#14804a; --money-soft:#dcf2e5;
+  --warn:#a15c00; --warn-soft:#fdf0d8; --err:#c0322b; --err-soft:#fbe3e1;
+  --bezel:#1b1f27; --bezel-2:#2a303b; --screen:#ffffff; --screen-ink:#111a2e;
+  --f-ui:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0c111b; --surface:#151c2a; --surface-2:#1a2233; --ink:#e6ebf4; --muted:#98a3b9; --line:#2a3447;
+  --accent:#86a6ff; --accent-soft:#1e2b4d; --money:#4fd08b; --money-soft:#123222;
+  --warn:#f2b54a; --warn-soft:#3a2b10; --err:#ff7b72; --err-soft:#3d1a19;
+  --bezel:#05070b; --bezel-2:#1a1f29; --screen:#f7f8fa; --screen-ink:#111a2e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c111b; --surface:#151c2a; --surface-2:#1a2233; --ink:#e6ebf4; --muted:#98a3b9; --line:#2a3447;
+  --accent:#86a6ff; --accent-soft:#1e2b4d; --money:#4fd08b; --money-soft:#123222;
+  --warn:#f2b54a; --warn-soft:#3a2b10; --err:#ff7b72; --err-soft:#3d1a19;
+  --bezel:#05070b; --bezel-2:#1a1f29; --screen:#f7f8fa; --screen-ink:#111a2e; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:15px;line-height:1.5;padding-inline:16px;padding-block:0 48px}
+.wrap{max-width:1360px;margin:0 auto}
+header.top{padding-block:28px 14px;display:flex;flex-wrap:wrap;gap:12px 32px;align-items:flex-end;justify-content:space-between}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-size:clamp(24px,3.2vw,34px);line-height:1.15;margin:4px 0 6px;font-weight:700;text-wrap:balance}
+h2{font-size:20px;margin:0 0 10px;font-weight:600;text-wrap:balance}
+h3{font-size:15px;margin:0 0 6px;font-weight:600}
+.sub{color:var(--muted);max-width:70ch;margin:0}
+.byline{font-size:13px;color:var(--muted);text-align:right}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* control bar */
+.controls{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{border:1px solid var(--line);background:var(--surface-2);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13.5px}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.ctl-row{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
+.scen-desc{font-size:14px;color:var(--muted);margin:0;max-width:90ch;min-width:0}
+.scen-desc b{color:var(--ink)}
+.ctl-btns{display:flex;gap:8px}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:7px 14px;font-weight:500;font-size:14px}
+.btn.primary{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+
+/* stage */
+.stage{display:grid;grid-template-columns:300px 290px minmax(0,1fr);gap:18px;align-items:start}
+.panel-label{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;display:flex;justify-content:space-between;gap:8px}
+
+/* payment terminal */
+.terminal{background:linear-gradient(180deg,var(--bezel-2),var(--bezel));border-radius:28px;padding:16px 14px 22px;box-shadow:0 12px 30px rgba(10,20,40,.25)}
+.term-top{display:flex;justify-content:space-between;align-items:center;color:#9aa3b5;font-family:var(--f-mono);font-size:10.5px;padding:0 6px 8px}
+.term-top .led{width:7px;height:7px;border-radius:50%;background:#3ddc84;display:inline-block;margin-right:5px;vertical-align:1px}
+.tscreen{background:var(--screen);color:var(--screen-ink);border-radius:14px;height:540px;overflow:hidden;display:flex;flex-direction:column}
+.tbar{background:#13203d;color:#fff;padding:8px 12px;display:flex;justify-content:space-between;font-size:12px}
+.tbody{flex:1;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto}
+.items{list-style:none;margin:0;padding:0;font-size:13px}
+.items li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed #dde2ea}
+.items li span:last-child{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.total{display:flex;justify-content:space-between;font-weight:700;font-size:18px;padding-top:4px}
+.total span:last-child{font-family:var(--f-mono)}
+.paybtns{display:grid;gap:8px;margin-top:auto}
+.tbtn{border:none;border-radius:10px;padding:12px;font-weight:600;font-size:14.5px;background:#e7ebf2;color:#111a2e;text-align:left;display:flex;justify-content:space-between;align-items:center}
+.tbtn.go{background:#1f4fd1;color:#fff}
+.tbtn.ok{background:#14804a;color:#fff}
+.tbtn small{font-weight:400;opacity:.8;font-size:11.5px}
+.qrbox{background:#fff;border:1px solid #dde2ea;border-radius:10px;padding:10px;display:flex;justify-content:center}
+.qrbox svg{width:190px;height:190px;display:block}
+.center{text-align:center}
+.big{font-size:26px;font-weight:700;font-family:var(--f-mono)}
+.mono{font-family:var(--f-mono)}
+.small{font-size:12px;color:#5a6479}
+.wait{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13.5px;font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;background:#1f4fd1;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.25}}
+.skip{background:none;border:none;color:#1f4fd1;font-size:12px;text-decoration:underline;padding:0}
+.check{width:72px;height:72px;border-radius:50%;background:#14804a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:40px;margin:14px auto 4px}
+.cross{background:#a15c00}
+.tnote{background:#fdf0d8;color:#6b3d00;border-radius:8px;padding:8px 10px;font-size:12.5px}
+.tnote.g{background:#dcf2e5;color:#0d5a33}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px}
+.kv dt{color:#5a6479}.kv dd{margin:0;font-family:var(--f-mono);text-align:right}
+
+/* phone */
+.phone{background:var(--bezel);border-radius:40px;padding:12px;box-shadow:0 12px 30px rgba(10,20,40,.25)}
+.pscreen{background:var(--screen);color:var(--screen-ink);border-radius:30px;height:556px;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.notch{width:96px;height:22px;background:var(--bezel);border-radius:0 0 14px 14px;margin:0 auto}
+.pbody{flex:1;padding:14px 16px 18px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto}
+.bankhead{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.banklogo{font-weight:700;color:#0f6b5c;letter-spacing:.02em}
+.balance{background:linear-gradient(135deg,#0f6b5c,#13466e);color:#fff;border-radius:14px;padding:14px}
+.balance .mono{font-size:22px;font-weight:600}
+.pbtn{border:none;border-radius:12px;padding:13px;font-weight:600;font-size:15px;background:#0f6b5c;color:#fff;width:100%}
+.pbtn.ghost{background:#e7ebf2;color:#111a2e}
+.pbtn.danger{background:#c0322b}
+.pbtn:disabled{opacity:.45;cursor:default}
+.viewfinder{flex:1;background:#0b0d12;border-radius:14px;display:flex;align-items:center;justify-content:center;position:relative;min-height:240px}
+.viewfinder .frame{width:150px;height:150px;border:3px solid #3ddc84;border-radius:12px;position:relative;overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center}
+.viewfinder .frame svg{width:136px;height:136px}
+.scanline{position:absolute;left:0;right:0;height:2px;background:#3ddc84;animation:scan 1.1s linear infinite}
+@keyframes scan{from{top:0}to{top:100%}}
+.field{border-bottom:1px solid #e1e6ee;padding:6px 0}
+.field .l{font-size:11px;color:#5a6479;text-transform:uppercase;letter-spacing:.05em}
+.field .v{font-size:14px;font-weight:500;word-break:break-all}
+.vop{border-radius:10px;padding:9px 11px;font-size:12.5px;display:flex;gap:8px;align-items:flex-start}
+.vop.ok{background:#dcf2e5;color:#0d5a33}
+.vop.bad{background:#fbe3e1;color:#8a1f19}
+.vop b{display:block}
+.inst{font-size:11.5px;background:#e3eafc;color:#1f3c99;border-radius:999px;padding:2px 9px;align-self:flex-start;font-weight:600}
+.faceid{width:80px;height:80px;border:3px solid #0f6b5c;border-radius:22px;margin:30px auto 6px;animation:pulse 0.9s infinite}
+.toast{position:absolute;left:10px;right:10px;bottom:14px;background:#111a2e;color:#fff;border-radius:14px;padding:10px 12px;font-size:12.5px;box-shadow:0 8px 20px rgba(0,0,0,.3)}
+.toast b{color:#7ff0b2}
+
+/* console */
+.console{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-width:0}
+.tabs{display:flex;border-bottom:1px solid var(--line)}
+.tab{flex:1;border:none;background:none;padding:10px;font-size:13.5px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent}
+.tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+.tabpane{padding:12px;min-width:0}
+.seqwrap{overflow-x:auto}
+#seq{display:block}
+#seq text{font-family:var(--f-ui);fill:var(--ink)}
+#seq .lane-h{fill:var(--surface-2);stroke:var(--line)}
+#seq .life{stroke:var(--line);stroke-dasharray:4 4}
+#seq .lbl{font-size:11.5px}
+#seq .num{font-family:var(--f-mono);font-size:10.5px;fill:var(--muted)}
+#seq .ghost{opacity:.32}
+#seq .k-req{stroke:var(--accent);fill:var(--accent)}
+#seq .k-resp{stroke:var(--muted);fill:var(--muted)}
+#seq .k-money{stroke:var(--money);fill:var(--money)}
+#seq .k-warn{stroke:var(--warn);fill:var(--warn)}
+#seq .k-int{stroke:var(--muted);fill:var(--muted)}
+#seq .latest .lbl{font-weight:600}
+.seq-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);margin:8px 0 0}
+.seq-legend i{display:inline-block;width:18px;height:3px;vertical-align:3px;margin-right:5px;border-radius:2px}
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:520px;overflow:auto}
+.log li{border:1px solid var(--line);border-radius:8px;background:var(--surface-2);min-width:0}
+.log summary{list-style:none;cursor:pointer;padding:7px 10px;display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:8px;align-items:baseline;font-size:13px}
+.log summary::-webkit-details-marker{display:none}
+.log .n{font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
+.log .route{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.log .k{border-left:3px solid var(--accent)}
+.log .k-money{border-left-color:var(--money)} .log .k-warn{border-left-color:var(--warn)} .log .k-resp,.log .k-int{border-left-color:var(--muted)}
+.log pre{margin:0;padding:8px 10px 10px 44px;font-family:var(--f-mono);font-size:11.5px;white-space:pre-wrap;word-break:break-word;color:var(--ink)}
+.empty{color:var(--muted);font-size:13.5px;padding:8px 2px}
+
+/* lower sections */
+section.block{margin-top:22px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface-2)}
+.stat .v{font-family:var(--f-mono);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat .l{font-size:12.5px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+.calc{display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:8px 12px;align-items:center;font-size:14px}
+.calc input{width:100%;font:inherit;font-family:var(--f-mono);padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink);text-align:right}
+.result{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;font-size:14px}
+.result .mono{text-align:right;font-variant-numeric:tabular-nums}
+.result .hl{font-weight:700;color:var(--money)}
+.note{font-size:12.5px;color:var(--muted);margin-top:10px}
+.decisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.dec{border-top:3px solid var(--accent);padding-top:10px}
+.dec p{margin:0;font-size:14px;color:var(--muted)}
+.dec .pick{font-weight:600;color:var(--ink);font-size:14px;margin-bottom:4px}
+.metrics{columns:2 260px;font-size:14px;margin:0;padding-left:18px}
+.metrics li{margin-bottom:4px}
+footer{margin-top:20px;font-size:12.5px;color:var(--muted)}
+
+@media (max-width:1180px){.stage{grid-template-columns:300px 290px}.console{grid-column:1 / -1}}
+@media (max-width:680px){.stage{grid-template-columns:minmax(0,1fr)}.terminal,.phone{max-width:320px;margin:0 auto;width:100%}.byline{text-align:left}}
+@media (prefers-reduced-motion:reduce){.dot,.scanline,.faceid{animation:none}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div>
+    <div class="eyebrow">Technical assignment · Fintech Product Manager · smartIBAN</div>
+    <h1>Pay-by-bank at the supermarket till</h1>
+    <p class="sub">A shopper pays from their banking app with SEPA Instant. Every basket gets its own virtual IBAN, so the payment matches itself the moment it lands. Pick a scenario and play it, or click through the till and the phone yourself.</p>
+  </div>
+  <div class="byline">Prototype by Senthil Kumar Ramasamy<br>Simulated data · no real money moves</div>
+</header>
+
+<div class="controls" role="region" aria-label="Scenarios">
+  <div class="chips" id="chips"></div>
+  <div class="ctl-row">
+    <p class="scen-desc" id="scenDesc"></p>
+    <div class="ctl-btns">
+      <button class="btn primary" id="autoBtn" type="button">▶ Auto-play</button>
+      <button class="btn" id="resetBtn" type="button">Reset</button>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div>
+    <p class="panel-label"><span>1 · Till terminal</span><span>Lane 3</span></p>
+    <div class="terminal">
+      <div class="term-top"><span><span class="led"></span>FreshCo Antibes</span><span id="clock">--:--</span></div>
+      <div class="tscreen">
+        <div class="tbar"><span>Checkout</span><span id="tstatus">Ready</span></div>
+        <div class="tbody" id="tbody"></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="panel-label"><span>2 · Shopper's bank app</span><span>Camille</span></p>
+    <div class="phone">
+      <div class="pscreen">
+        <div class="notch"></div>
+        <div class="pbody" id="pbody"></div>
+        <div id="toast"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="console">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tab-seq" aria-selected="true" aria-controls="pane-seq" type="button">Live sequence</button>
+      <button class="tab" role="tab" id="tab-log" aria-selected="false" aria-controls="pane-log" type="button">Data exchanged (<span id="logCount">0</span>)</button>
+    </div>
+    <div class="tabpane" id="pane-seq" role="tabpanel">
+      <p class="panel-label"><span>3 · smartIBAN: who sends what, step by step</span><span id="seqHint">Expected happy path</span></p>
+      <div class="seqwrap"><svg id="seq" width="640" height="200" role="img" aria-label="Sequence of messages between the till, smartIBAN, the vIBAN provider and the shopper's bank"></svg></div>
+      <div class="seq-legend">
+        <span><i style="background:var(--accent)"></i>API request</span>
+        <span><i style="background:var(--muted)"></i>Response / push / webhook</span>
+        <span><i style="background:var(--money)"></i>Money moves (SEPA Instant)</span>
+        <span><i style="background:var(--warn)"></i>Exception handled</span>
+      </div>
+    </div>
+    <div class="tabpane" id="pane-log" role="tabpanel" hidden>
+      <p class="panel-label"><span>Every message with its payload</span><span>tap a row</span></p>
+      <ol class="log" id="log"></ol>
+    </div>
+  </div>
+</div>
+
+<section class="block" aria-labelledby="dashH">
+  <h2 id="dashH">Store dashboard · today</h2>
+  <div class="stats">
+    <div class="stat"><div class="v" id="stPaid">0</div><div class="l">Paid baskets</div></div>
+    <div class="stat"><div class="v" id="stVol">€0.00</div><div class="l">Volume received</div></div>
+    <div class="stat"><div class="v" id="stTtp">–</div><div class="l">Avg time to pay (simulated)</div></div>
+    <div class="stat"><div class="v" id="stRef">€0.00</div><div class="l">Refunded</div></div>
+    <div class="stat"><div class="v" id="stExc">0</div><div class="l">Exceptions auto-handled</div></div>
+    <div class="stat"><div class="v" id="stLost">0</div><div class="l">Abandoned at checkout</div></div>
+    <div class="stat"><div class="v" id="stNet">€0.00</div><div class="l">Next payout (net)</div></div>
+  </div>
+  <div class="result" style="margin-top:12px;max-width:520px" id="settleOut"></div>
+  <p class="note">Net settlement: payout = payments − refunds − fees, itemised so finance can reconcile it. smartIBAN keeps a rolling reserve from earlier payouts, so a refund can be paid instantly even before the first sale of the day. Fee per basket comes from the unit-economics inputs below.</p>
+</section>
+
+<section class="block grid2" aria-labelledby="costH">
+  <div>
+    <h2 id="costH">Unit economics</h2>
+    <div class="calc">
+      <label for="cBasket">Average basket (€)</label><input id="cBasket" type="number" step="0.1" value="47.30">
+      <label for="cCard">Card cost, all-in (% of basket)</label><input id="cCard" type="number" step="0.05" value="0.60">
+      <label for="cFee">Pay-by-bank fee per basket (€)</label><input id="cFee" type="number" step="0.01" value="0.08">
+      <label for="cDay">Baskets per store per day</label><input id="cDay" type="number" step="50" value="1500">
+      <label for="cAdopt">Share paid by bank (%)</label><input id="cAdopt" type="number" step="1" value="15">
+    </div>
+    <p class="note">All inputs are assumptions to replace with real pricing. EU interchange is capped at 0.2% (debit) and 0.3% (credit); scheme and acquirer fees come on top.</p>
+  </div>
+  <div>
+    <h3>Per basket and per store</h3>
+    <div class="result" id="calcOut"></div>
+    <p class="note">Break-even basket size shows why a flat per-vIBAN fee matters: below it, a disposable vIBAN costs more than the card. That is a pricing decision to make early.</p>
+  </div>
+</section>
+
+<section class="block" aria-labelledby="decH">
+  <h2 id="decH">Four product decisions behind this design</h2>
+  <div class="decisions">
+    <div class="dec"><h3>Where it runs</h3><div class="pick">On the Android payment terminal, next to card</div><p>No new hardware for the store, one device for every payment type, and the cashier already knows it. The till software sends the amount the same way it does for a card.</p></div>
+    <div class="dec"><h3>One vIBAN per basket</h3><div class="pick">Disposable vIBAN for every checkout</div><p>Matching by amount and time on a shared lane IBAN breaks when two shoppers pay similar sums. Fresh vIBANs come from a small pre-created pool, so creation time stays out of the queue. Each is closed after one use, and late or duplicate transfers are rejected instantly. Cost per vIBAN is tracked from day one.</p></div>
+    <div class="dec"><h3>What confirms payment</h3><div class="pick">Only smartIBAN's signed status, on the terminal's own connection</div><p>A shopper's "sent" screen proves nothing and can be faked. A store firewall blocks inbound webhooks, so the terminal opens its own secure connection and smartIBAN pushes the status down it. No merchant server. If a push is lost, the terminal checks the status every 3 seconds.</p></div>
+    <div class="dec"><h3>QR now, Request-to-Pay next</h3><div class="pick">Dynamic EPC QR on the terminal screen</div><p>Works with many banking apps today. Never a printed sticker, which fraudsters can cover. SEPA Request-to-Pay removes the scan once banks join the scheme.</p></div>
+  </div>
+</section>
+
+<section class="block grid2" aria-labelledby="metH">
+  <div>
+    <h2 id="metH">What I would measure from day one</h2>
+    <ul class="metrics">
+      <li><b>Time to pay</b>: QR shown → paid. The number that decides adoption.</li>
+      <li><b>Checkout completion</b>: paid ÷ QR shown</li>
+      <li><b>VoP match rate</b>: share of payers who see "name matches"</li>
+      <li><b>Auto-match rate</b>: payments reconciled with no human</li>
+      <li><b>Exceptions per 1,000</b>: late, duplicate, partial</li>
+      <li><b>Contribution margin</b> per basket vs card</li>
+      <li><b>Provider health</b>: vIBAN creation latency and error rate</li>
+      <li><b>Refund time</b>: request → money back</li>
+    </ul>
+  </div>
+  <div>
+    <h2>Risks I would test first</h2>
+    <ul class="metrics" style="columns:1">
+      <li><b>Speed vs a card tap.</b> Opening a banking app is slower than tapping. Pilot with shoppers who opt in, such as at self-checkout.</li>
+      <li><b>Banking-app QR support</b> differs by bank and country. Test the top 10 French apps before launch.</li>
+      <li><b>No chargeback.</b> Shoppers lose card-style protection; fast refunds and clear receipts have to build that trust instead.</li>
+      <li><b>Instant limits</b> set by banks can block large baskets. Fall back to card in one tap.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  The QR code follows the EPC069-12 "SEPA credit transfer" format with a generated demo IBAN. Scanning it with a real banking app pre-fills the transfer; <b>do not confirm it</b>. Store, bank and provider names are fictional. Timings are simulated assumptions: scan 5 s, review 3 s, authenticate 2 s, SEPA Instant 2 s (legal maximum 10 s), webhook 0.4 s.
+</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+var ITEMS=[["Tomatoes on the vine, 1.2 kg",4.20],["Baguette tradition",1.30],["Comté AOP, 250 g",6.90],["Olive oil, 75 cl",9.80],["Free-range eggs ×12",4.60],["Coffee beans, 1 kg",14.90],["Sparkling water ×6",3.45],["Basil plant",2.15]];
+var TOTAL=47.30;
+var MERCHANT_NAME="FRESHCO ANTIBES";
+var PAYER={name:"Camille Martin",iban:"FR76 •••• •••• •••• 4821"};
+var PROV={A:{name:"Provider A",bank:"16958",branch:"00001",entity:"PROVIDER A PAYMENTS SAS"},B:{name:"Provider B",bank:"17418",branch:"00002",entity:"PROVIDER B PAYMENTS SA"}};
+var SCEN={
+  happy:{label:"Happy path",desc:"<b>Shopper scans, confirms, done.</b> One vIBAN is created for this basket, SEPA Instant lands in seconds, the till turns green, and the vIBAN is closed.",script:["pay","scan","confirm"]},
+  refund:{label:"Item returned",desc:"<b>Same-visit correction: the tomatoes go back.</b> The cashier picks the returned items (or types an amount, capped at what is still refundable), a supervisor approves with a PIN, and smartIBAN sends €4.20 by SEPA Instant to the IBAN the payment came from. It is a real refund, not a card-style void, and it is deducted from the store's next payout.",script:["pay","scan","confirm","refund","pickTomato","refundNext","approve"]},
+  walk:{label:"Shopper walks away",desc:"<b>QR shown, nobody pays.</b> After 2 minutes the payment expires, the cashier offers card or cash, and the abandoned checkout is counted.",script:["pay","skip"]},
+  late:{label:"Pays after cancel",desc:"<b>Cashier cancels, shopper pays anyway.</b> The vIBAN was closed on cancel, so the provider rejects the transfer instantly (pacs.002 RJCT, AC04). No money moves and there is nothing to refund.",script:["pay","scan","cancel","confirm"]},
+  dup:{label:"Pays twice",desc:"<b>Shopper taps Pay twice.</b> The vIBAN closed after the first payment, so the second transfer is rejected instantly. The money never leaves the shopper's account.",script:["pay","scan","confirm","payAgain"]},
+  lost:{label:"Push lost",desc:"<b>The status push never reaches the terminal.</b> The store's connection drops just as the money lands. After 3 seconds with no news, the terminal asks smartIBAN directly, gets \"paid\", and the shopper leaves on time.",script:["pay","scan","confirm"]},
+  failover:{label:"Provider A down",desc:"<b>Provider A fails its health check.</b> smartIBAN routes the new vIBAN to Provider B. The till and the shopper notice nothing.",script:["pay","scan","confirm"]},
+  vop:{label:"Wrong name on vIBAN",desc:"<b>The vIBAN is registered under the provider's legal name.</b> Verification of Payee tells the shopper the name doesn't match, and they walk away. Fix: register every vIBAN under the trading name shoppers see.",script:["pay","scan","vopCancel"]}
+};
+var LANES={till:{x:72,label:"Till app"},smart:{x:240,label:"smartIBAN"},prov:{x:410,label:"vIBAN provider"},bank:{x:572,label:"Shopper's bank"}};
+var TEMPLATE=[
+  ["till","smart","Secure connection open (terminal-initiated)","int"],
+  ["till","smart","POST /v1/payments  (amount, lane, basket)","req"],
+  ["smart","smart","Route to a healthy provider","int"],
+  ["smart","smart","Take a fresh vIBAN from the store pool","int"],
+  ["smart","till","201  payment + QR payload","resp"],
+  ["smart","prov","Top up the pool (background)","req"],
+  ["bank","prov","Verification of Payee: name?","req"],
+  ["prov","bank","VoP: MATCH","resp"],
+  ["bank","prov","SEPA Instant €47.30 (pacs.008)","money"],
+  ["prov","bank","Accepted: pacs.002 (ACCP)","resp"],
+  ["prov","smart","Webhook credit.received","resp"],
+  ["smart","smart","Match vIBAN → basket","int"],
+  ["smart","till","Push payment.paid (terminal connection)","resp"],
+  ["smart","prov","Close disposable vIBAN","req"]
+];
+
+var scen="happy";
+var S;
+var stats={paid:0,vol:0,ttp:[],ref:0,exc:0,lost:0};
+var countdownTimer=null;
+var POOL={A:12,B:8};
+
+function fresh(){return {run:(S?S.run:0)+1,step:"basket",phone:"idle",pay:null,events:[],sim:0,refunded:0,refundAmt:0,refundLines:"",toast:null,tnote:null,vop:null};}
+function later(ms,fn){var tok=S.run;setTimeout(function(){if(tok===S.run)fn();},ms);}
+function $(id){return document.getElementById(id);}
+function eur(v){return "€"+v.toFixed(2);}
+function nowStr(){var d=new Date();return d.toTimeString().slice(0,8);}
+function iso(offsetS){return new Date(Date.now()+(offsetS||0)*1000).toISOString().replace(/\.\d+Z$/,"Z");}
+function rid(p,n){var s="";var c="abcdefghjkmnpqrstuvwxyz23456789";for(var i=0;i<n;i++)s+=c[Math.floor(Math.random()*c.length)];return p+s;}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+
+/* ---------- IBAN generation (valid FR checksum) ---------- */
+function ribKey(bank,branch,acct){var k=97-((89*Number(bank)+15*Number(branch)+3*Number(acct))%97);return (k<10?"0":"")+k;}
+function mod97(numStr){var r=0;for(var i=0;i<numStr.length;i++){r=(r*10+Number(numStr[i]))%97;}return r;}
+function genIban(p){
+  var acct="";for(var i=0;i<11;i++)acct+=Math.floor(Math.random()*10);
+  var bban=PROV[p].bank+PROV[p].branch+acct+ribKey(PROV[p].bank,PROV[p].branch,acct);
+  var chk=98-mod97(bban+"152700");
+  return "FR"+(chk<10?"0":"")+chk+bban;
+}
+function fmtIban(i){return i.replace(/(.{4})/g,"$1 ").trim();}
+function basketRef(){var d=new Date();var ds=d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");return "B"+ds+"-L03-"+String(Math.floor(Math.random()*9000)+1000);}
+function epcPayload(p){return ["BCD","002","1","SCT","",MERCHANT_NAME,p.iban,"EUR"+TOTAL.toFixed(2),"","",p.ref+" DEMO DO NOT PAY"].join("\n");}
+function qrSvg(text,cell){
+  if(typeof qrcode!=="function")return '<div class="small mono" style="white-space:pre;padding:10px">'+esc(text)+'</div>';
+  try{var q=qrcode(0,"M");q.addData(text);q.make();return q.createSvgTag({cellSize:cell||4,margin:2,scalable:true});}
+  catch(e){return '<div class="small mono" style="white-space:pre">'+esc(text)+'</div>';}
+}
+
+/* ---------- event log ---------- */
+function log(from,to,label,kind,data){
+  S.events.push({n:S.events.length+1,from:from,to:to,label:label,kind:kind,data:data,t:nowStr()});
+  renderLog();renderSeq();
+}
+
+/* ---------- actions ---------- */
+var A={};
+A.pay=function(){
+  if(S.step!=="basket")return;
+  S.step="creating";renderT();
+  var prov=scen==="failover"?"B":"A";
+  var ref=basketRef();var pid=rid("pay_",10);var idem=rid("idem_",8);
+  log("till","smart","Secure connection open (terminal-initiated)","int",{channel:"outbound TLS with mutual authentication",opened_by:"terminal, at start-up",why:"store firewall blocks inbound webhooks; the merchant runs no server",fallback:"status check every 3 s if no push arrives"});
+  log("till","smart","POST /v1/payments","req",{merchant_id:"mch_freshco",store_id:"str_antibes_01",lane_id:"lane_03",amount:{value:TOTAL.toFixed(2),currency:"EUR"},basket_ref:ref,expires_in_s:120,idempotency_key:idem});
+  later(380,function(){
+    var routing=scen==="failover"
+      ?{country:"FR",candidates:[{provider:"A",health:"failing",error_rate_5min:"38%"},{provider:"B",health:"ok",latency_ms:140}],decision:"B",reason:"A failed health check, rerouted"}
+      :{country:"FR",candidates:[{provider:"A",health:"ok",latency_ms:120},{provider:"B",health:"ok",latency_ms:140}],decision:"A",reason:"healthy and lowest cost"};
+    log("smart","smart","Route: pick provider "+prov,scen==="failover"?"warn":"int",routing);
+    var holder=scen==="vop"?PROV[prov].entity:MERCHANT_NAME;
+    later(250,function(){
+      var iban=genIban(prov);
+      POOL[prov]--;
+      log("smart","smart","Take a fresh vIBAN from the store pool","int",{pool:"str_antibes_01 / "+PROV[prov].name,iban:fmtIban(iban),holder_name:holder,state:"never used, pre-created in the background",left_in_pool:POOL[prov],rule:"used once, closed after payment, never reused",why:"vIBAN creation time stays out of the checkout queue"});
+      later(250,function(){
+        S.pay={id:pid,ref:ref,iban:iban,holder:holder,prov:prov,status:"awaiting",closed:false,expiresAt:Date.now()+120000};
+        log("smart","till","201 payment created","resp",{payment_id:pid,status:"awaiting_payment",iban:fmtIban(iban),beneficiary_name:MERCHANT_NAME,amount:{value:TOTAL.toFixed(2),currency:"EUR"},reference:ref,qr_format:"EPC069-12",qr_payload:epcPayload(S.pay),expires_at:iso(120)});
+        S.step="awaiting";S.phone="ready";startCountdown();renderAll();
+        later(450,function(){
+          log("smart","prov","POST /vibans (pool top-up, background)","req",{provider:PROV[prov].name,count:1,holder_name:holder,country:"FR",reason:"keep "+PROV[prov].name+" pool at target size",pool_after:++POOL[prov]});
+        });
+      });
+    });
+  });
+};
+A.scan=function(){
+  if(S.phone!=="ready"||!S.pay)return;
+  S.phone="scanning";renderP();
+  later(1200,function(){
+    S.sim+=5000;
+    var match=scen!=="vop";
+    log("bank","prov","Verification of Payee request","req",{iban:fmtIban(S.pay.iban),name_entered:MERCHANT_NAME,source:"pre-filled from QR"});
+    later(320,function(){
+      S.vop=match?"MATCH":"NO_MATCH";
+      log("prov","bank","VoP: "+(match?"MATCH":"NO MATCH"),match?"resp":"warn",match?{result:"MATCH"}:{result:"NO_MATCH",registered_holder:"differs from name entered"});
+      S.sim+=3000;S.phone="review";renderP();
+    });
+  });
+};
+A.confirm=function(){
+  if(S.phone!=="review")return;
+  S.phone="auth";renderP();
+  later(950,function(){S.sim+=2000;S.phone="sending";renderP();sendMoney();});
+};
+A.vopCancel=function(){
+  if(S.phone!=="review")return;
+  S.phone="abandoned";renderP();
+  log("bank","bank","Shopper cancels after VoP warning","warn",{outcome:"lost sale",fix:"register each vIBAN under the trading name shown to shoppers ("+MERCHANT_NAME+")"});
+};
+A.payAgain=function(){
+  if(S.phone!=="sent")return;
+  S.phone="auth";renderP();
+  later(800,function(){S.phone="sending";S.dupSent=true;renderP();sendMoney();});
+};
+function sendMoney(){
+  var p=S.pay;var e2e=rid("E2E",12).toUpperCase();
+  log("bank","prov","SEPA Instant €"+TOTAL.toFixed(2)+" (pacs.008)","money",{scheme:"SCT Inst",end_to_end_id:e2e,debtor:{name:PAYER.name,iban:PAYER.iban},creditor:{name:MERCHANT_NAME,iban:fmtIban(p.iban)},amount:{value:TOTAL.toFixed(2),currency:"EUR"},remittance:p.ref});
+  if(p.closed){later(450,function(){rejectClosed(e2e);});return;}
+  later(450,function(){
+    S.sim+=2000;
+    log("prov","bank","Accepted: pacs.002 (ACCP)","resp",{message:"pacs.002",original_end_to_end_id:e2e,transaction_status:"ACCP",meaning:"payee PSP accepted and credited the funds",note:"payer's bank shows success only after this, within the 10 s SCT Inst limit"});
+    S.phone="sent";renderP();
+    later(380,function(){
+      log("prov","smart","Webhook credit.received","resp",{event:"credit.received",iban:fmtIban(p.iban),amount:TOTAL.toFixed(2),debtor_name:PAYER.name,debtor_iban:PAYER.iban,end_to_end_id:e2e,received_at:iso()});
+      later(340,settle);
+    });
+  });
+}
+function settle(){
+  var p=S.pay;
+  if(p.status==="awaiting"){
+    log("smart","smart","Match vIBAN → basket","int",{iban:fmtIban(p.iban),payment_id:p.id,expected:TOTAL.toFixed(2),received:TOTAL.toFixed(2),result:"exact match, no human needed"});
+    later(300,function(){
+      S.sim+=400;p.status="paid";
+      var paidMsg={event:"payment.paid",payment_id:p.id,status:"paid",amount:TOTAL.toFixed(2),paid_at:iso(),payer:{name:"C. Martin",iban:PAYER.iban},signature:"sha256=…"};
+      if(scen==="lost"){
+        log("smart","till","Push payment.paid: not delivered","warn",{event:"payment.paid",payment_id:p.id,delivery:"failed",reason:"terminal connection dropped (store network)",retry:"queued until the terminal reconnects"});
+        S.checking=true;renderT();
+        later(1500,function(){
+          S.sim+=3000;
+          log("till","smart","GET /v1/payments/{id} (status check)","req",{payment_id:p.id,reason:"no push received within 3 s",rule:"terminal checks every 3 s while awaiting payment"});
+          later(380,function(){
+            log("smart","till","200 status: paid","resp",paidMsg);
+            stats.exc++;finishPaid(p);
+            later(420,function(){log("till","smart","Secure connection restored","int",{channel:"outbound TLS with mutual authentication",queued_messages:"delivered, duplicates ignored by payment_id"});});
+          });
+        });
+      }else{
+        log("smart","till","Push payment.paid (terminal connection)","resp",Object.assign({channel:"terminal-initiated secure connection"},paidMsg));
+        finishPaid(p);
+      }
+    });
+  }else if(p.status==="paid"){
+    log("smart","smart","Duplicate payment detected","warn",{payment_id:p.id,status:"already paid",action:"auto-refund second transfer"});
+    stats.exc++;autoRefund("duplicate payment");
+  }else{
+    log("smart","smart","Late payment on "+p.status+" basket","warn",{payment_id:p.id,status:p.status,action:"auto-refund to payer"});
+    stats.exc++;S.tnote="late";autoRefund("payment arrived after "+(p.status==="cancelled"?"cancellation":"expiry"));renderT();
+  }
+}
+function rejectClosed(e2e){
+  var p=S.pay;var why=p.status==="paid"?"duplicate: basket already paid":"basket "+p.status+" before payment";
+  log("prov","bank","Rejected: pacs.002 (RJCT, AC04)","warn",{message:"pacs.002",original_end_to_end_id:e2e,transaction_status:"RJCT",reason_code:"AC04",reason:"closed account number (vIBAN closed)",funds:"never left the payer's account"});
+  S.phone="rejected";renderP();
+  later(380,function(){
+    log("prov","smart","Webhook credit.rejected","resp",{event:"credit.rejected",iban:fmtIban(p.iban),amount:TOTAL.toFixed(2),debtor_name:PAYER.name,reason_code:"AC04",context:why,refund_needed:false,fallback:"auto-refund only for providers that cannot reject"});
+    stats.exc++;S.tnote=p.status==="paid"?"dup":"late";renderAll();
+  });
+}
+function finishPaid(p){
+  p.ttp=S.sim;stopCountdown();S.checking=false;p.closed=true;
+  stats.paid++;stats.vol+=TOTAL;stats.ttp.push(p.ttp);
+  S.step="paid";renderAll();
+  later(380,function(){log("smart","prov","DELETE /vibans/"+p.iban.slice(-4),"req",{iban:fmtIban(p.iban),reason:"paid; disposable vIBAN closed"});});
+}
+function autoRefund(reason){
+  later(320,function(){
+    log("smart","prov","POST /payouts (refund)","req",{to:{name:PAYER.name,iban:PAYER.iban},amount:TOTAL.toFixed(2),reason:reason,scheme:"SCT Inst"});
+    later(360,function(){
+      log("prov","bank","SEPA Instant refund €"+TOTAL.toFixed(2),"money",{scheme:"SCT Inst",creditor:{name:PAYER.name,iban:PAYER.iban},amount:TOTAL.toFixed(2),remittance:"Refund "+S.pay.ref});
+      later(320,function(){
+        log("smart","till","Push payment.refunded","resp",{payment_id:S.pay.id,refunded:TOTAL.toFixed(2),reason:reason});
+        stats.ref+=TOTAL;S.toast="+€"+TOTAL.toFixed(2)+" refunded by FreshCo Antibes";
+        if(S.step==="paid")S.tnote="dup";
+        renderAll();
+      });
+    });
+  });
+}
+function remaining(){return Math.round((TOTAL-S.refunded)*100)/100;}
+A.refund=function(){
+  if(S.step!=="paid"||remaining()<=0)return;
+  S.step="refundSelect";renderT();
+};
+function syncRefundAmount(){
+  var sum=0;ITEMS.forEach(function(it,i){var c=$("ri"+i);if(c&&c.checked)sum+=it[1];});
+  var a=$("refAmt");if(a)a.value=sum?sum.toFixed(2):"";
+  var e=$("refErr");if(e)e.textContent="";
+}
+A.pickTomato=function(){var c=$("ri0");if(c&&!c.checked){c.checked=true;syncRefundAmount();}};
+A.refundNext=function(){
+  if(S.step!=="refundSelect")return;
+  var raw=($("refAmt").value||"").replace(",",".");var amt=Math.round(parseFloat(raw)*100)/100;
+  var err=$("refErr");
+  if(!(amt>0)){err.textContent="Pick the returned items or type an amount.";return;}
+  if(amt>remaining()){err.textContent="Too high: at most "+eur(remaining())+" can still be refunded on this payment.";return;}
+  var lines=ITEMS.filter(function(it,i){var c=$("ri"+i);return c&&c.checked;}).map(function(it){return it[0];});
+  var picked=lines.reduce(function(a,n){var it=ITEMS.find(function(x){return x[0]===n;});return a+it[1];},0);
+  S.refundAmt=amt;S.refundLines=lines.length&&Math.abs(picked-amt)<0.005?lines.join(", "):(lines.length?lines.join(", ")+" (amount adjusted by cashier)":"Manual amount entered by cashier");
+  S.step="pin";renderT();
+};
+A.back=function(){if(S.step==="pin"||S.step==="refundSelect"){S.step="paid";renderT();}};
+A.approve=function(){
+  if(S.step!=="pin")return;
+  var amt=S.refundAmt,lines=S.refundLines;
+  S.refunded=Math.round((S.refunded+amt)*100)/100;S.step="paid";renderT();
+  log("till","till","Supervisor PIN approved","int",{approver:"supervisor 0412",method:"app's own supervisor PIN (pilot)",rule:"same-day corrections only; later returns go to the customer-service desk"});
+  log("till","smart","POST /v1/payments/{id}/refunds","req",{payment_id:S.pay.id,amount:amt.toFixed(2),reason:"same-visit correction",lines:lines,approved_by:"supervisor 0412",to:"originating IBAN only",check:"amount ≤ "+eur(TOTAL-(S.refunded-amt))+" still refundable"});
+  later(360,function(){
+    log("smart","prov","POST /payouts (refund)","req",{to:{name:PAYER.name,iban:PAYER.iban},amount:amt.toFixed(2),scheme:"SCT Inst",funded_from:"merchant balance at smartIBAN (rolling reserve)",settlement:"deducted from the next payout",on_failure:"flag to customer-service desk"});
+    later(360,function(){
+      log("prov","bank","SEPA Instant refund €"+amt.toFixed(2),"money",{scheme:"SCT Inst",creditor:{name:PAYER.name,iban:PAYER.iban},amount:amt.toFixed(2),remittance:"Refund "+S.pay.ref});
+      later(320,function(){
+        log("smart","till","Push refund.completed","resp",{payment_id:S.pay.id,refund_id:rid("rf_",8),amount:amt.toFixed(2),status:"completed"});
+        stats.ref+=amt;S.lastRefund=amt;S.toast="+"+eur(amt)+" refund from FreshCo Antibes";S.tnote="refund";renderAll();
+      });
+    });
+  });
+};
+A.cancel=function(){
+  if(S.step!=="awaiting")return;
+  S.pay.status="cancelled";stopCountdown();
+  log("till","smart","POST /v1/payments/{id}/cancel","req",{payment_id:S.pay.id,reason:"cashier cancelled"});
+  S.pay.closed=true;
+  later(280,function(){log("smart","till","200 cancelled","resp",{payment_id:S.pay.id,status:"cancelled",viban:"closed now: any late transfer is rejected by the provider"});
+    later(280,function(){log("smart","prov","DELETE /vibans/"+S.pay.iban.slice(-4),"req",{iban:fmtIban(S.pay.iban),reason:"basket cancelled; disposable vIBAN closed"});});});
+  S.step="cancelled";if(S.phone==="ready")S.phone="idle";renderAll();
+};
+A.skip=function(){
+  if(S.step!=="awaiting")return;
+  S.pay.status="expired";S.pay.closed=true;stopCountdown();
+  log("smart","till","Push payment.expired","warn",{payment_id:S.pay.id,status:"expired",after_s:120,next:"offer card or cash"});
+  stats.lost++;
+  S.step="expired";if(S.phone==="ready")S.phone="idle";renderAll();
+};
+A.newSale=function(){reset(false);};
+
+/* ---------- countdown ---------- */
+function startCountdown(){stopCountdown();countdownTimer=setInterval(function(){
+  if(!S.pay||S.step!=="awaiting"){stopCountdown();return;}
+  var left=Math.max(0,Math.round((S.pay.expiresAt-Date.now())/1000));
+  var el=$("cd");if(el)el.textContent=Math.floor(left/60)+":"+String(left%60).padStart(2,"0");
+  if(left<=0)A.skip();
+},500);}
+function stopCountdown(){if(countdownTimer){clearInterval(countdownTimer);countdownTimer=null;}}
+
+/* ---------- render: terminal ---------- */
+function renderT(){
+  var b=$("tbody"),st=$("tstatus"),h="";
+  var list='<ul class="items">'+ITEMS.map(function(i){return "<li><span>"+esc(i[0])+"</span><span>"+i[1].toFixed(2)+"</span></li>";}).join("")+"</ul>";
+  switch(S.step){
+    case "basket":
+      st.textContent="Ready";
+      h=list+'<div class="total"><span>Total</span><span>'+eur(TOTAL)+'</span></div>'+
+        '<div class="paybtns"><button class="tbtn" type="button" data-act="card">Card <small>contactless / chip</small></button>'+
+        '<button class="tbtn go" type="button" data-act="pay">Pay by bank <small>SEPA Instant</small></button>'+
+        '<button class="tbtn" type="button" data-act="cash">Cash <small></small></button></div>';
+      break;
+    case "creating":
+      st.textContent="Creating payment";
+      h='<div class="wait" style="margin:auto"><span class="dot"></span>Creating a vIBAN for this basket…</div>';
+      break;
+    case "awaiting":
+      st.textContent="Awaiting payment";
+      h='<div class="center"><div class="small">Scan with your banking app</div><div class="big">'+eur(TOTAL)+'</div></div>'+
+        '<div class="qrbox" aria-label="EPC QR code for this basket">'+qrSvg(epcPayload(S.pay),4)+'</div>'+
+        '<div class="center mono small">'+fmtIban(S.pay.iban)+'<br>'+MERCHANT_NAME+' · '+S.pay.ref+'</div>'+
+        '<div class="wait"><span class="dot"></span>'+(S.checking?'No update received · checking status…':'Waiting for payment · <span class="mono" id="cd">2:00</span>')+'</div>'+
+        '<div class="paybtns"><button class="tbtn" type="button" data-act="cancel">Cancel <small>offer card or cash</small></button></div>'+
+        '<div class="center"><button class="skip" type="button" data-act="skip">Demo: skip to expiry</button></div>';
+      break;
+    case "paid":
+      st.textContent="Paid";
+      h='<div class="check" aria-hidden="true">✓</div><div class="center"><div class="big">'+eur(TOTAL)+'</div><div style="font-weight:600">Paid by bank · SEPA Instant</div></div>'+
+        '<dl class="kv"><dt>Payer</dt><dd>C. Martin</dd><dt>From</dt><dd>'+PAYER.iban.replace("•••• •••• ","")+'</dd><dt>Time to pay</dt><dd>'+(S.pay.ttp/1000).toFixed(1)+' s</dd><dt>Reference</dt><dd>'+S.pay.ref+'</dd><dt>vIBAN</dt><dd>…'+S.pay.iban.slice(-4)+' closed</dd></dl>'+
+        (S.tnote==="refund"?'<div class="tnote g">Refund '+eur(S.lastRefund||0)+' sent to C. Martin by SEPA Instant. Still refundable: '+eur(remaining())+'.</div>':"")+
+        (S.tnote==="dup"?'<div class="tnote">A second transfer from the same shopper was rejected instantly: the vIBAN closed after the first payment. Nothing to refund.</div>':"")+
+        '<div class="paybtns">'+(remaining()>0?'<button class="tbtn" type="button" data-act="refund">Refund <small>up to '+eur(remaining())+' · instant transfer</small></button>':"")+
+        '<button class="tbtn ok" type="button" data-act="newSale">New sale</button></div>';
+      break;
+    case "refundSelect":
+      st.textContent="Refund";
+      h='<div style="font-weight:600">What is being returned?</div><div class="small">Basket '+S.pay.ref+' · paid '+eur(TOTAL)+' · refundable '+eur(remaining())+'</div>'+
+        '<div class="items" style="display:flex;flex-direction:column;gap:2px">'+ITEMS.map(function(it,i){return '<label style="display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0;border-bottom:1px dashed #dde2ea"><input type="checkbox" id="ri'+i+'" data-ri="'+i+'"><span style="flex:1">'+esc(it[0])+'</span><span class="mono">'+it[1].toFixed(2)+'</span></label>';}).join("")+'</div>'+
+        '<label for="refAmt" class="small" style="margin-top:4px">Amount to refund (€) · filled from the items, or type it</label>'+
+        '<input id="refAmt" inputmode="decimal" autocomplete="off" placeholder="0.00" style="font:inherit;font-family:var(--f-mono);font-size:18px;padding:8px 10px;border:1px solid #c9d0db;border-radius:8px;text-align:right;color:#111a2e;background:#fff">'+
+        '<div id="refErr" class="small" style="color:#c0322b;min-height:16px"></div>'+
+        '<div class="paybtns"><button class="tbtn go" type="button" data-act="refundNext">Continue to approval</button><button class="tbtn" type="button" data-act="back">Back</button></div>';
+      break;
+    case "pin":
+      st.textContent="Supervisor approval";
+      h='<div class="center" style="margin-top:6px"><div style="font-weight:600;font-size:17px">Refund '+eur(S.refundAmt)+'</div><div class="small">'+esc(S.refundLines)+'</div></div>'+
+        '<dl class="kv"><dt>To</dt><dd>C. Martin</dd><dt>IBAN</dt><dd>FR76 •••• 4821</dd><dt>Method</dt><dd>SEPA Instant</dd></dl>'+
+        '<div class="tnote">This is a real refund: the money already arrived, so it cannot be voided like a card payment.</div>'+
+        '<div class="center"><div class="small">Supervisor PIN</div><div class="mono" style="font-size:26px;letter-spacing:.4em">••••</div></div>'+
+        '<div class="paybtns"><button class="tbtn go" type="button" data-act="approve">Approve refund <small>PIN entered</small></button><button class="tbtn" type="button" data-act="back">Back</button></div>';
+      break;
+    case "cancelled":
+    case "expired":
+      st.textContent=S.step==="expired"?"Expired":"Cancelled";
+      h='<div class="check cross" aria-hidden="true">!</div><div class="center"><div style="font-weight:600;font-size:17px">'+(S.step==="expired"?"No payment after 2 minutes":"Payment cancelled")+'</div><div class="small">Basket '+eur(TOTAL)+' is still open</div></div>'+
+        (S.tnote==="late"?'<div class="tnote">The shopper tried to pay after cancellation. The vIBAN was already closed, so the transfer was rejected instantly. No money moved.</div>':"")+
+        '<div class="paybtns"><button class="tbtn" type="button" data-act="card">Pay by card</button><button class="tbtn" type="button" data-act="cash">Cash</button><button class="tbtn go" type="button" data-act="newSale">Start again</button></div>';
+      break;
+  }
+  b.innerHTML=h;
+}
+
+/* ---------- render: phone ---------- */
+function renderP(){
+  var b=$("pbody"),h="";
+  var head='<div class="bankhead"><span class="banklogo">Horizon Bank</span><span class="small">'+nowStr().slice(0,5)+'</span></div>';
+  switch(S.phone){
+    case "idle":
+    case "ready":
+      h=head+'<div class="balance"><div class="small" style="color:#cfe">Current account</div><div class="mono">€1,284.17</div><div class="small" style="color:#cfe">'+PAYER.iban+'</div></div>'+
+        '<div class="small" style="color:#5a6479">'+(S.phone==="ready"?"A payment QR is on the till screen.":"Waiting for a QR code at the till.")+'</div>'+
+        '<button class="pbtn" type="button" data-act="scan" '+(S.phone==="ready"?"":"disabled")+'>Scan to pay</button>'+
+        '<button class="pbtn ghost" type="button" disabled>Transfer</button>';
+      break;
+    case "scanning":
+      h=head+'<div class="viewfinder"><div class="frame">'+(S.pay?qrSvg(epcPayload(S.pay),3):"")+'<div class="scanline"></div></div></div><div class="center small">Reading SEPA QR…</div>';
+      break;
+    case "review":
+      var ok=S.vop==="MATCH";
+      h=head+'<div style="font-weight:600;font-size:16px">Confirm transfer</div><span class="inst">⚡ Instant · arrives in seconds</span>'+
+        '<div class="field"><div class="l">To</div><div class="v">'+MERCHANT_NAME+'</div></div>'+
+        '<div class="field"><div class="l">IBAN</div><div class="v mono" style="font-size:12.5px">'+fmtIban(S.pay.iban)+'</div></div>'+
+        '<div class="field"><div class="l">Amount</div><div class="v mono">'+eur(TOTAL)+'</div></div>'+
+        '<div class="field"><div class="l">Reference</div><div class="v mono" style="font-size:12.5px">'+S.pay.ref+'</div></div>'+
+        (ok?'<div class="vop ok"><span>✓</span><span><b>Name matches the account</b>Verified by your bank</span></div>'
+           :'<div class="vop bad"><span>!</span><span><b>Name does not match</b>This account is not registered to '+MERCHANT_NAME+'. You could be sending money to someone else.</span></div>')+
+        (ok?'<button class="pbtn" type="button" data-act="confirm">Pay '+eur(TOTAL)+'</button>'
+           :'<button class="pbtn" type="button" data-act="vopCancel">Cancel transfer</button><button class="pbtn ghost" type="button" data-act="confirm">Pay anyway</button>');
+      break;
+    case "auth":
+      h=head+'<div class="faceid" aria-hidden="true"></div><div class="center" style="font-weight:600">Confirm with Face ID</div><div class="center small">Strong customer authentication</div>';
+      break;
+    case "sending":
+      h=head+'<div class="wait" style="margin-top:60px"><span class="dot" style="background:#0f6b5c"></span>Sending instant transfer…</div><div class="center mono">'+eur(TOTAL)+' → '+MERCHANT_NAME+'</div><div class="center small">Waiting for the receiving bank to confirm (pacs.002)</div>';
+      break;
+    case "sent":
+      h=head+'<div class="check" aria-hidden="true" style="background:#0f6b5c">✓</div><div class="center"><div style="font-weight:600;font-size:17px">Instant transfer sent</div><div class="mono">'+eur(TOTAL)+' → '+MERCHANT_NAME+'</div><div class="small">'+S.pay.ref+'</div></div>'+
+        '<div class="small" style="color:#5a6479;text-align:center">The till confirms on its own. This screen is not proof of payment.</div>'+
+        (scen==="dup"&&!S.dupSent?'<button class="pbtn ghost" type="button" data-act="payAgain">Demo: shopper taps Pay again</button>':"");
+      break;
+    case "rejected":
+      h=head+'<div class="check cross" aria-hidden="true" style="background:#c0322b">✕</div><div class="center"><div style="font-weight:600;font-size:17px">Payment rejected</div><div class="mono">'+eur(TOTAL)+' → '+MERCHANT_NAME+'</div><div class="small">Receiving account closed (AC04)</div></div>'+
+        '<div class="small" style="color:#5a6479;text-align:center">No money left your account.'+(S.pay&&S.pay.status==="paid"?' Your first payment already went through.':'')+'</div>';
+      break;
+    case "abandoned":
+      h=head+'<div class="check cross" aria-hidden="true">✕</div><div class="center"><div style="font-weight:600;font-size:17px">Transfer cancelled</div><div class="small">The name did not match, so Camille did not pay.</div></div>'+
+        '<div class="small" style="color:#5a6479;text-align:center">Lost sale. The fix is on the merchant side: the vIBAN must carry the trading name shown on the QR.</div>';
+      break;
+  }
+  b.innerHTML=h;
+  $("toast").innerHTML=S.toast?'<div class="toast" role="status">Horizon Bank · <b>'+esc(S.toast)+'</b></div>':"";
+}
+
+/* ---------- render: sequence + log ---------- */
+var SVGNS="http://www.w3.org/2000/svg";
+function el(tag,attrs,parent){var e=document.createElementNS(SVGNS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function renderSeq(){
+  var svg=$("seq");while(svg.firstChild)svg.removeChild(svg.firstChild);
+  var ghost=S.events.length===0;
+  var rows=ghost?TEMPLATE.map(function(r,i){return {n:i+1,from:r[0],to:r[1],label:r[2],kind:r[3]};}):S.events;
+  $("seqHint").textContent=ghost?"Expected happy path · press Pay by bank":"Live · "+rows.length+" messages";
+  var y0=64,dy=36,H=y0+rows.length*dy+16;svg.setAttribute("height",H);
+  var defs=el("defs",{},svg);
+  ["req","resp","money","warn","int"].forEach(function(k){var m=el("marker",{id:"ar-"+k,viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"7",markerHeight:"7",orient:"auto-start-reverse"},defs);el("path",{d:"M0,0L10,5L0,10z","class":"k-"+k},m);});
+  Object.keys(LANES).forEach(function(k){var L=LANES[k];
+    el("rect",{x:L.x-62,y:8,width:124,height:30,rx:6,"class":"lane-h"},svg);
+    var t=el("text",{x:L.x,y:28,"text-anchor":"middle","font-size":"12.5","font-weight":"600"},svg);t.textContent=L.label;
+    el("line",{x1:L.x,y1:38,x2:L.x,y2:H-6,"class":"life"},svg);
+  });
+  rows.forEach(function(r,i){
+    var y=y0+i*dy+10;var g=el("g",{"class":(ghost?"ghost":"")+(i===rows.length-1&&!ghost?" latest":"")},svg);
+    var x1=LANES[r.from].x,x2=LANES[r.to].x,k=r.kind;
+    var dash=(k==="resp"||k==="int")?"5 4":"none";
+    if(r.from===r.to){
+      el("path",{d:"M"+x1+" "+(y-6)+" h34 v14 h-30",fill:"none","class":"k-"+k,"stroke-width":"1.8","stroke-dasharray":dash,"marker-end":"url(#ar-"+k+")",style:"fill:none"},g);
+      var t1=el("text",{x:x1+42,y:y+5,"class":"lbl"},g);t1.textContent=r.label;
+      var n1=el("text",{x:x1-8,y:y+4,"text-anchor":"end","class":"num"},g);n1.textContent=r.n;
+    }else{
+      var dir=x2>x1?1:-1;
+      el("line",{x1:x1+dir*3,y1:y,x2:x2-dir*4,y2:y,"class":"k-"+k,"stroke-width":k==="money"?"2.6":"1.8","stroke-dasharray":dash,"marker-end":"url(#ar-"+k+")"},g);
+      var mid=(x1+x2)/2;
+      var t2=el("text",{x:mid,y:y-6,"text-anchor":"middle","class":"lbl"},g);t2.textContent=r.label;
+      var n2=el("text",{x:Math.min(x1,x2)-8,y:y+4,"text-anchor":"end","class":"num"},g);n2.textContent=r.n;
+    }
+  });
+}
+function renderLog(){
+  var ol=$("log");$("logCount").textContent=S.events.length;
+  if(!S.events.length){ol.innerHTML='<li class="empty" style="border:none;background:none">No messages yet. Press <b>Pay by bank</b> on the till or <b>Auto-play</b>.</li>';return;}
+  var last=S.events.length-1;
+  ol.innerHTML=S.events.map(function(e,i){
+    return '<li class="k k-'+e.kind+'"><details'+(i===last?" open":"")+'><summary><span class="n">'+e.n+'</span><span>'+esc(e.label)+'</span><span class="route">'+LANES[e.from].label+(e.from===e.to?"":" → "+LANES[e.to].label)+' · '+e.t+'</span></summary><pre>'+esc(JSON.stringify(e.data,null,2))+'</pre></details></li>';
+  }).join("");
+  ol.scrollTop=ol.scrollHeight;
+}
+
+/* ---------- stats + calc ---------- */
+function renderStats(){
+  $("stPaid").textContent=stats.paid;$("stVol").textContent=eur(stats.vol);$("stRef").textContent=eur(stats.ref);
+  $("stExc").textContent=stats.exc;$("stLost").textContent=stats.lost;
+  var fees=stats.paid*num("cFee"),net=stats.vol-stats.ref-fees;
+  $("stNet").textContent=(net<0?"−":"")+eur(Math.abs(net));
+  $("settleOut").innerHTML='<span>Payments ('+stats.paid+')</span><span class="mono">'+eur(stats.vol)+'</span><span>Refunds</span><span class="mono">−'+eur(stats.ref)+'</span><span>smartIBAN fees</span><span class="mono">−'+eur(fees)+'</span><span><b>Net payout to FreshCo</b></span><span class="mono hl">'+(net<0?"−":"")+eur(Math.abs(net))+'</span>';
+  $("stTtp").textContent=stats.ttp.length?(stats.ttp.reduce(function(a,b){return a+b;},0)/stats.ttp.length/1000).toFixed(1)+" s":"–";
+}
+function num(id){var v=parseFloat($(id).value);return isFinite(v)?v:0;}
+function renderCalc(){
+  var basket=num("cBasket"),cardPct=num("cCard"),fee=num("cFee"),day=num("cDay"),adopt=num("cAdopt");
+  var card=basket*cardPct/100,bank=fee,save=card-bank;
+  var perYear=day*360*adopt/100;var annual=save*perYear;
+  var be=cardPct>0?fee/(cardPct/100):0;
+  $("calcOut").innerHTML=
+    '<span>Card cost per basket</span><span class="mono">'+eur(card)+'</span>'+
+    '<span>Pay-by-bank cost per basket</span><span class="mono">'+eur(bank)+'</span>'+
+    '<span>Saving per basket</span><span class="mono '+(save>=0?"hl":"")+'">'+(save<0?"−":"")+eur(Math.abs(save))+'</span>'+
+    '<span>Bank-paid baskets per store per year</span><span class="mono">'+Math.round(perYear).toLocaleString("en-GB")+'</span>'+
+    '<span><b>Saving per store per year</b></span><span class="mono '+(annual>=0?"hl":"")+'">'+(annual<0?"−":"")+"€"+Math.round(Math.abs(annual)).toLocaleString("en-GB")+'</span>'+
+    '<span>Break-even basket size</span><span class="mono">'+eur(be)+'</span>';
+}
+
+function renderAll(){renderT();renderP();renderLog();renderSeq();renderStats();}
+
+/* ---------- scenario + controls ---------- */
+function renderChips(){
+  $("chips").innerHTML=Object.keys(SCEN).map(function(k){return '<button class="chip" type="button" data-scen="'+k+'" aria-pressed="'+(k===scen)+'">'+SCEN[k].label+'</button>';}).join("");
+  $("scenDesc").innerHTML=SCEN[scen].desc;
+}
+function reset(){stopCountdown();S=fresh();autoRunning=false;$("autoBtn").disabled=false;renderAll();}
+var autoRunning=false;
+var READY={pay:function(){return S.step==="basket";},scan:function(){return S.phone==="ready";},confirm:function(){return S.phone==="review";},cancel:function(){return S.step==="awaiting"&&S.phone==="review";},payAgain:function(){return S.phone==="sent"&&S.pay&&S.pay.status==="paid";},refund:function(){return S.step==="paid";},pickTomato:function(){return S.step==="refundSelect";},refundNext:function(){return S.step==="refundSelect"&&$("refAmt")&&$("refAmt").value!=="";},approve:function(){return S.step==="pin";},skip:function(){return S.step==="awaiting";},vopCancel:function(){return S.phone==="review";}};
+function autoplay(){
+  reset();autoRunning=true;$("autoBtn").disabled=true;
+  var tok=S.run,script=SCEN[scen].script.slice(),i=0;
+  function next(){
+    if(tok!==S.run)return;
+    if(i>=script.length){autoRunning=false;$("autoBtn").disabled=false;return;}
+    var act=script[i],waited=0;
+    (function poll(){
+      if(tok!==S.run)return;
+      if(READY[act]()){setTimeout(function(){if(tok!==S.run)return;A[act]();i++;next();},900);}
+      else if((waited+=150)<20000)setTimeout(poll,150);
+      else{autoRunning=false;$("autoBtn").disabled=false;}
+    })();
+  }
+  setTimeout(next,400);
+}
+
+document.addEventListener("click",function(ev){
+  var t=ev.target.closest("[data-act],[data-scen],.tab");if(!t)return;
+  if(t.dataset.scen){scen=t.dataset.scen;try{localStorage.setItem("sib-scen",scen);}catch(e){}renderChips();reset();return;}
+  if(t.classList.contains("tab")){
+    var seq=t.id==="tab-seq";$("tab-seq").setAttribute("aria-selected",seq);$("tab-log").setAttribute("aria-selected",!seq);
+    $("pane-seq").hidden=!seq;$("pane-log").hidden=seq;return;
+  }
+  var a=t.dataset.act;
+  if(a==="card"||a==="cash"){t.querySelector("small")?t.querySelector("small").textContent="unchanged flow, not shown here":null;return;}
+  if(A[a])A[a]();
+});
+document.addEventListener("change",function(ev){if(ev.target&&ev.target.dataset&&ev.target.dataset.ri!==undefined)syncRefundAmount();});
+$("autoBtn").addEventListener("click",autoplay);
+$("resetBtn").addEventListener("click",reset);
+["cBasket","cCard","cFee","cDay","cAdopt"].forEach(function(id){$(id).addEventListener("input",function(){renderCalc();renderStats();});});
+setInterval(function(){$("clock").textContent=nowStr().slice(0,5);},1000);
+$("clock").textContent=nowStr().slice(0,5);
+
+try{var saved=localStorage.getItem("sib-scen");if(saved&&SCEN[saved])scen=saved;}catch(e){}
+S=fresh();renderChips();renderAll();renderCalc();
+})();
+</script>
